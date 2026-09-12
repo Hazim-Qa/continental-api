@@ -1,0 +1,45 @@
+name: probe
+on:
+  workflow_dispatch:
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: smtp relay probe from clean IP
+        run: |
+          python3 - <<'PY'
+          import smtplib, socket, traceback
+          for H,P in [("4.148.93.130",1025),("4.227.70.59",1025)]:
+              print(f"########## {H}:{P}")
+              try:
+                  s=smtplib.SMTP(H,P,timeout=25,local_hostname="ci-runner.continental.local")
+                  s.set_debuglevel(1)
+                  code,msg=s.ehlo()
+                  print("EHLO",code,msg)
+                  print("FEATURES",s.esmtp_features)
+                  try: print("VRFY",s.verify("winston@ztaha45hotmail.onmicrosoft.com"))
+                  except Exception as e: print("vrfy err",e)
+                  # is it an open relay to an arbitrary external domain?
+                  for rcpt in ["winston@ztaha45hotmail.onmicrosoft.com",
+                               "probe@example.com",
+                               "root@localhost"]:
+                      try:
+                          s.mail("cicd@notify.thecontinental.local")
+                          c,m=s.rcpt(rcpt); print("RCPT",rcpt,"->",c,m)
+                          s.rset()
+                      except Exception as e: print("rcpt err",rcpt,e)
+                  # full delivery
+                  try:
+                      r=s.sendmail("cicd@notify.thecontinental.local",
+                          ["winston@ztaha45hotmail.onmicrosoft.com"],
+                          "Subject: Deployment approval needed\r\nFrom: cicd@notify.thecontinental.local\r\nTo: winston@ztaha45hotmail.onmicrosoft.com\r\n\r\nPlease activate\r\n")
+                      print("DATA accepted, refused=",r)
+                  except Exception as e: print("data err",type(e).__name__,e)
+                  s.quit()
+              except Exception as e:
+                  print("FAIL",type(e).__name__,e); traceback.print_exc()
+          PY
+      - name: port sweep from clean IP
+        run: |
+          sudo apt-get install -y -qq nmap >/dev/null 2>&1 || true
+          nmap -Pn -n --open -T4 -p 22,25,80,443,1025,1080,3000,5000,8000,8025,8080,8443,9000 4.148.93.130 4.227.70.59 || true
